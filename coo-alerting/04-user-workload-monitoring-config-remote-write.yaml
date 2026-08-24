@@ -1,0 +1,32 @@
+---
+# Wires the User Workload Monitoring Prometheus to remote_write into New Relic.
+# Requires 02 (enableUserWorkload) and 03 (the license-key secret) applied first.
+#
+# Region: this uses the US endpoint (metric-api.newrelic.com). If the account is EU,
+# use https://metric-api.eu.newrelic.com/prometheus/v1/write instead 
+#
+# prometheus_server=<cluster-name> query param: New Relic uses this to label/identify
+# the data source - replace <cluster-name> with something identifiable (e.g. the
+# cluster's infra ID or a customer-agreed name), not left as a literal placeholder.
+#
+# writeRelabelConfigs below is commented out - per alerting-model-remote-write.md's
+# "cons" section, sending everything drives NR ingest cost directly. Uncomment/adjust
+# once you know what the customer actually wants in New Relic vs just kept local.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: user-workload-monitoring-config
+  namespace: openshift-user-workload-monitoring
+data:
+  config.yaml: |
+    prometheus:
+      remoteWrite:
+        - url: "https://metric-api.newrelic.com/prometheus/v1/write?prometheus_server=<cluster-name>"
+          authorization:
+            credentials:
+              name: newrelic-remote-write-creds
+              key: token
+          # writeRelabelConfigs:
+          #   - sourceLabels: [__name__]
+          #     regex: "up|kube_pod_status_phase|kube_node_status_condition|.*_error.*"
+          #     action: keep

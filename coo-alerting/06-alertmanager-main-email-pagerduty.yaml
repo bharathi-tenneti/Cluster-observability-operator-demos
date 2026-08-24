@@ -1,0 +1,69 @@
+
+# --- Email (email_configs) ---
+# Needs an SMTP relay - fill in:
+#   <smtp-host>:<port>   e.g. smtp.example.com:587
+#   <alert-from-address>  e.g. openshift-alerts@example.com
+#   <smtp-username> / <smtp-password>  (or auth_identity if using plain auth)
+#   <alert-to-address>    the mailbox/distribution list that should receive these
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-main
+  namespace: openshift-monitoring
+type: Opaque
+stringData:
+  alertmanager.yaml: |
+    global:
+      http_config:
+        proxy_from_environment: true
+      smtp_smarthost: "<smtp-host>:<port>"
+      smtp_from: "<alert-from-address>"
+      smtp_auth_username: "<smtp-username>"
+      smtp_auth_password: "<smtp-password>"
+
+    inhibit_rules:
+      - equal:
+          - namespace
+          - alertname
+        source_matchers:
+          - severity = critical
+        target_matchers:
+          - severity =~ warning|info
+      - equal:
+          - namespace
+          - alertname
+        source_matchers:
+          - severity = warning
+        target_matchers:
+          - severity = info
+
+    receivers:
+      - name: Default
+        email_configs:
+          - to: "<alert-to-address>"
+            send_resolved: true
+      - name: Watchdog
+        email_configs:
+          - to: "<alert-to-address>"
+            send_resolved: true
+      - name: Critical
+        email_configs:
+          - to: "<alert-to-address>"
+            send_resolved: true
+
+
+    route:
+      group_by:
+        - namespace
+      group_interval: 5m
+      group_wait: 30s
+      receiver: Default
+      repeat_interval: 12h
+      routes:
+        - matchers:
+            - alertname = Watchdog
+          receiver: Watchdog
+        - matchers:
+            - severity = critical
+          receiver: Critical

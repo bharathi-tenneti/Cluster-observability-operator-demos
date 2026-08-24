@@ -1,0 +1,16 @@
+---
+# Prerequisite for the remote_write model: turns on User Workload Monitoring, which
+# is what actually runs the Prometheus instance we attach remote_write to (03/04 in
+# this folder). 
+# This does NOT touch platform Prometheus (prometheusK8s) or its metrics - only spins
+# up the separate user-workload Prometheus instance. If you also want *platform*
+# component metrics (etcd/apiserver/kubelet/etc.) remote_written to New Relic, that's
+# a `prometheusK8s.remoteWrite` block added to this same ConfigMap - 
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-monitoring-config
+  namespace: openshift-monitoring
+data:
+  config.yaml: |
+    enableUserWorkload: true

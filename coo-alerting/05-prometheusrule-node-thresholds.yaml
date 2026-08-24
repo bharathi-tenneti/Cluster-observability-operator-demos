@@ -1,0 +1,85 @@
+
+#
+# Metrics used, confirmed present on this cluster:
+#   instance:node_cpu_utilisation:rate1m   (existing recording rule, 0-1 fraction)
+#   node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes
+#   node_filesystem_avail_bytes / node_filesystem_size_bytes
+#   up{job="node-exporter"}                (node reachability - stand-in for "Uptime")
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: node-resource-thresholds
+  namespace: openshift-monitoring
+  labels:
+    role: alert-rules
+spec:
+  groups:
+    - name: node-cpu-thresholds
+      rules:
+        - alert: NodeCPUUsageWarning
+          expr: instance:node_cpu_utilisation:rate1m * 100 > 90
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "CPU usage above 90% on {{ $labels.instance }}"
+            description: "CPU utilization is {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }} (warning threshold: 90%)."
+        - alert: NodeCPUUsageCritical
+          expr: instance:node_cpu_utilisation:rate1m * 100 > 95
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "CPU usage above 95% on {{ $labels.instance }}"
+            description: "CPU utilization is {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }} (critical threshold: 95%)."
+
+    - name: node-memory-thresholds
+      rules:
+        - alert: NodeMemoryUsageWarning
+          expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Memory usage above 90% on {{ $labels.instance }}"
+            description: "Memory utilization is {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }} (warning threshold: 90%)."
+        - alert: NodeMemoryUsageCritical
+          expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 95
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Memory usage above 95% on {{ $labels.instance }}"
+            description: "Memory utilization is {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }} (critical threshold: 95%)."
+
+    - name: node-disk-thresholds
+      rules:
+        - alert: NodeDiskSpaceUsageWarning
+          expr: |
+            (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"})) * 100 > 90
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Disk usage above 90% on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+            description: "Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }} is {{ $value | printf \"%.1f\" }}% full (warning threshold: 90%)."
+        - alert: NodeDiskSpaceUsageCritical
+          expr: |
+            (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"})) * 100 > 95
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Disk usage above 95% on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+            description: "Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }} is {{ $value | printf \"%.1f\" }}% full (critical threshold: 95%)."
+
+    - name: node-uptime
+      rules:
+        - alert: NodeDown
+          expr: up{job="node-exporter"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node {{ $labels.instance }} is unreachable"
+            description: "node-exporter on {{ $labels.instance }} has not been scrapeable for 5m - equivalent to the legacy 'Uptime' check flagging a host as down."
