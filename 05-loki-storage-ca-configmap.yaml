@@ -1,0 +1,11 @@
+---
+# Injected with the cluster's service-serving CA bundle (NooBaa's S3 endpoint uses a
+# service-serving cert), so LokiStack can trust it. Key populated by the annotation
+# is "service-ca.crt" - the default LokiStack storage.tls.caKey expects.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-storage-ca
+  namespace: openshift-logging
+  annotations:
+    service.beta.openshift.io/inject-cabundle: "true"
