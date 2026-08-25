@@ -8,10 +8,7 @@
 # prometheus_server=<cluster-name> query param: New Relic uses this to label/identify
 # the data source - replace <cluster-name> with something identifiable (e.g. the
 # cluster's infra ID or a customer-agreed name), not left as a literal placeholder.
-#
-# writeRelabelConfigs below is commented out - per alerting-model-remote-write.md's
-# "cons" section, sending everything drives NR ingest cost directly. Uncomment/adjust
-# once you know what the customer actually wants in New Relic vs just kept local.
+
 apiVersion: v1
 kind: ConfigMap
 metadata:
