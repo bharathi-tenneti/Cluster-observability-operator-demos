@@ -6,6 +6,15 @@ metadata:
   namespace: openshift-logging
 spec:
   size: 1x.demo   # test cluster - not for production log volume
+  limits:
+    global:
+      ingestion:
+        # 1x.demo defaults to 4 MiB/s, which this cluster's infrastructure log
+        # volume bursts past (distributor was logging
+        # "ingestion rate limit exceeded for user infrastructure"). Raised for
+        # demo purposes — tune down for real workloads.
+        ingestionRate: 16
+        ingestionBurstSize: 32
   storage:
     schemas:
       - version: v13
