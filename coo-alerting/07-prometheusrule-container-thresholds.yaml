@@ -1,0 +1,108 @@
+---
+# User-defined project alerting rules for container health - the counterpart to
+# 05-prometheusrule-node-thresholds.yaml (which alerts on nodes, at the platform
+# level) but scoped to a single application's containers instead.
+#
+# Requires 02-cluster-monitoring-config-enable-uwm.yaml applied first: unlike 05,
+# this PrometheusRule does NOT live in openshift-monitoring and does NOT use the
+# `role: alert-rules` platform label. It lives in the application's own namespace
+# and is picked up by the User Workload Monitoring Thanos Ruler, which restricts
+# its queries to that namespace automatically (no explicit namespace{}
+# selector needed in the expressions below, and none should be added - Thanos
+# Ruler injects/enforces it).
+#
+# Replace <app-namespace> below with the namespace of the workload you want to
+# monitor, then:
+#   oc apply -f 07-prometheusrule-container-thresholds.yaml
+#
+# Metrics used - all standard cAdvisor/kube-state-metrics series already scraped
+# cluster-wide by the platform Prometheus and available cluster-wide through
+# Thanos Querier:
+#   container_memory_working_set_bytes
+#   kube_pod_container_resource_limits{resource="memory"|"cpu"}
+#   container_cpu_cfs_throttled_periods_total / container_cpu_cfs_periods_total
+#   kube_pod_container_status_restarts_total
+#   kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}
+#
+# Note for non-cluster-admins: creating PrometheusRule objects in your own
+# namespace requires the `monitoring-rules-edit` (or `monitoring-rules-view` to
+# just view) ClusterRole bound to you in that namespace.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: container-resource-thresholds
+  namespace: <app-namespace>
+spec:
+  groups:
+    - name: container-memory-thresholds
+      rules:
+        - alert: ContainerMemoryNearLimitWarning
+          expr: |
+            (container_memory_working_set_bytes{container!="",container!="POD"}
+              / on(namespace,pod,container)
+              kube_pod_container_resource_limits{resource="memory"}) > 0.90
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Container {{ $labels.container }} in pod {{ $labels.pod }} is near its memory limit"
+            description: "{{ $labels.container }}/{{ $labels.pod }} is using {{ $value | humanizePercentage }} of its memory limit (warning threshold: 90%)."
+        - alert: ContainerMemoryNearLimitCritical
+          expr: |
+            (container_memory_working_set_bytes{container!="",container!="POD"}
+              / on(namespace,pod,container)
+              kube_pod_container_resource_limits{resource="memory"}) > 0.95
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Container {{ $labels.container }} in pod {{ $labels.pod }} is about to hit its memory limit"
+            description: "{{ $labels.container }}/{{ $labels.pod }} is using {{ $value | humanizePercentage }} of its memory limit (critical threshold: 95%) - an OOM kill is likely imminent."
+
+    - name: container-cpu-thresholds
+      rules:
+        - alert: ContainerCPUThrottlingHighWarning
+          expr: |
+            (rate(container_cpu_cfs_throttled_periods_total{container!="",container!="POD"}[5m])
+              / on(namespace,pod,container)
+              rate(container_cpu_cfs_periods_total{container!="",container!="POD"}[5m])) > 0.25
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Container {{ $labels.container }} in pod {{ $labels.pod }} is being CPU throttled"
+            description: "{{ $value | humanizePercentage }} of CPU periods for {{ $labels.container }}/{{ $labels.pod }} were throttled over the last 5m (warning threshold: 25%) - consider raising its CPU limit."
+        - alert: ContainerCPUThrottlingHighCritical
+          expr: |
+            (rate(container_cpu_cfs_throttled_periods_total{container!="",container!="POD"}[5m])
+              / on(namespace,pod,container)
+              rate(container_cpu_cfs_periods_total{container!="",container!="POD"}[5m])) > 0.50
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Container {{ $labels.container }} in pod {{ $labels.pod }} is heavily CPU throttled"
+            description: "{{ $value | humanizePercentage }} of CPU periods for {{ $labels.container }}/{{ $labels.pod }} were throttled over the last 5m (critical threshold: 50%)."
+
+    - name: container-restart-thresholds
+      rules:
+        - alert: ContainerRestartingFrequently
+          expr: increase(kube_pod_container_status_restarts_total{container!=""}[15m]) > 3
+          labels:
+            severity: warning
+          annotations:
+            summary: "Container {{ $labels.container }} in pod {{ $labels.pod }} is restarting frequently"
+            description: "{{ $labels.container }}/{{ $labels.pod }} has restarted {{ $value }} times in the last 15m - likely crash-looping."
+        - alert: ContainerOOMKilled
+          # last_terminated_reason stays OOMKilled until the container terminates
+          # for some other reason, so also require a recent restart - otherwise a
+          # single OOM kill would keep this alert firing indefinitely.
+          expr: |
+            kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+              and on(namespace,pod,container)
+            increase(kube_pod_container_status_restarts_total[10m]) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "Container {{ $labels.container }} in pod {{ $labels.pod }} was OOM-killed"
+            description: "{{ $labels.container }}/{{ $labels.pod }} was OOM-killed and restarted in the last 10m - its memory limit is too low for its actual usage."
